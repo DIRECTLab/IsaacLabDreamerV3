@@ -14,6 +14,9 @@ import sys
 import torch
 from tqdm import tqdm
 from huggingface_hub import snapshot_download
+import ruamel.yaml as yaml
+import portal
+from functools import partial as bind
 
 from isaaclab.app import AppLauncher
 
@@ -79,9 +82,12 @@ import sys
 from pathlib import Path
 
 import dreamerv3
+from dreamerv3.main import make_agent, make_logger, make_replay, make_env, wrap_env, make_stream
 folder = Path(dreamerv3.__file__).parent
 sys.path.insert(0, str(folder.parent))
-from embodied.core.wrappers import IsaacLabWrapper
+
+import embodied
+import elements
 
 from isaaclab.envs import DirectMARLEnvCfg, DirectRLEnvCfg, ManagerBasedRLEnvCfg  # noqa: E402
 
@@ -104,24 +110,8 @@ def _max_action_dim(action_space) -> int:
     return int(shape[0])
 
 @hydra_task_config(args_cli.task, agent_cfg_entry_point)
-def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agent_cfg: dict):
+def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, configs: dict):
     args = args_cli.__dict__
-
-    # HARL runner args
-    args["env"] = "isaaclab"
-    args["algo"] = args["algorithm"]
-    args["exp_name"] = "play"
-
-    is_adv = "adv" in str(args["algo"]).lower()
-
-    algo_args = agent_cfg
-    algo_args["eval"]["use_eval"] = False
-    algo_args["render"]["use_render"] = True
-
-    # apply model_dir logic (HF and/or local dir)
-    algo_args.setdefault("train", {})
-
-    # Env config
     env_args: dict = {}
     if args.get("num_envs") is not None:
         env_cfg.scene.num_envs = args["num_envs"]
@@ -135,8 +125,117 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     env_args["headless"] = args["headless"]
     env_args["debug"] = args["debug"]
 
-    # create runner
-    runner = RUNNER_REGISTRY[args["algo"]](args, algo_args, env_args)
+    configs["defaults"]["task"] = f"isaaclab_{configs['defaults']['task']}"
+    # HARL runner args
+    args["env"] = "isaaclab"
+    args["algo"] = args["algorithm"]
+    args["exp_name"] = "play"
+
+
+    parsed, other = elements.Flags(configs=['defaults']).parse_known()
+    config = elements.Config(configs['defaults'])
+    for name in parsed.configs:
+        config = config.update(configs[name])
+    config = elements.Flags(config).parse(other)
+    config = config.update(logdir=(
+        config.logdir.format(timestamp=elements.timestamp())))
+
+    if 'JOB_COMPLETION_INDEX' in os.environ:
+        config = config.update(replica=int(os.environ['JOB_COMPLETION_INDEX']))
+    print('Replica:', config.replica, '/', config.replicas)
+
+    logdir = elements.Path(config.logdir)
+    print('Logdir:', logdir)
+    print('Run script:', config.script)
+    if not config.script.endswith(('_env', '_replay')):
+        logdir.mkdir()
+        config.save(logdir / 'config.yaml')
+
+    def init():
+        elements.timer.global_timer.enabled = config.logger.timer
+
+    portal.setup(
+        errfile=config.errfile and logdir / 'error',
+        clientkw=dict(logging_color='cyan'),
+        serverkw=dict(logging_color='cyan'),
+        initfns=[init],
+        ipv6=config.ipv6,
+    )
+
+    args = elements.Config(
+        **config.run,
+        replica=config.replica,
+        replicas=config.replicas,
+        logdir=config.logdir,
+        batch_size=config.batch_size,
+        batch_length=config.batch_length,
+        report_length=config.report_length,
+        consec_train=config.consec_train,
+        consec_report=config.consec_report,
+        replay_context=config.replay_context,
+    )
+
+    if config.script == 'train':
+        embodied.run.train(
+            bind(make_agent, config, env_args=env_args),
+            bind(make_replay, config, 'replay'),
+            bind(make_env, config, env_args=env_args),
+            bind(make_stream, config),
+            bind(make_logger, config),
+            args)
+
+    elif config.script == 'train_eval':
+        embodied.run.train_eval(
+            bind(make_agent, config),
+            bind(make_replay, config, 'replay'),
+            bind(make_replay, config, 'eval_replay', 'eval'),
+            bind(make_env, config),
+            bind(make_env, config),
+            bind(make_stream, config),
+            bind(make_logger, config),
+            args)
+
+    elif config.script == 'eval_only':
+        embodied.run.eval_only(
+            bind(make_agent, config),
+            bind(make_env, config),
+            bind(make_logger, config),
+            args)
+
+    elif config.script == 'parallel':
+        embodied.run.parallel.combined(
+            bind(make_agent, config),
+            bind(make_replay, config, 'replay'),
+            bind(make_replay, config, 'replay_eval', 'eval'),
+            bind(make_env, config),
+            bind(make_env, config),
+            bind(make_stream, config),
+            bind(make_logger, config),
+            args)
+
+    elif config.script == 'parallel_env':
+        is_eval = config.replica >= args.envs
+        embodied.run.parallel.parallel_env(
+            bind(make_env, config), config.replica, args, is_eval)
+
+    elif config.script == 'parallel_envs':
+        is_eval = config.replica >= args.envs
+        embodied.run.parallel.parallel_envs(
+            bind(make_env, config), bind(make_env, config), args)
+
+    elif config.script == 'parallel_replay':
+        embodied.run.parallel.parallel_replay(
+            bind(make_replay, config, 'replay'),
+            bind(make_replay, config, 'replay_eval', 'eval'),
+            bind(make_stream, config),
+            args)
+
+    else:
+        raise NotImplementedError(config.script)
+
+
+
+    
 
     obs, _, _ = runner.env.reset()
 
