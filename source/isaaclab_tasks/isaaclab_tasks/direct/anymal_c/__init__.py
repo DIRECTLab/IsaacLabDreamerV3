@@ -10,21 +10,10 @@ Ant locomotion environment.
 import gymnasium as gym
 
 from . import agents
-from .anymal_c_dreamer import AnymalCDreamerEnv, AnymalCDreamerEnvCfg
 
 ##
 # Register Gym environments.
 ##
-
-gym.register(
-    id="Isaac-Anymal-C-Dreamer-Direct-v0",
-    entry_point=AnymalCDreamerEnv,
-    disable_env_checker=True,
-    kwargs={
-        "env_cfg_entry_point": AnymalCDreamerEnvCfg,
-        "dreamer_cfg_entry_point": f"{agents.__name__}:dreamer_cfg.yaml",
-    },
-)
 
 gym.register(
     id="Isaac-Velocity-Flat-Anymal-C-Direct-v0",

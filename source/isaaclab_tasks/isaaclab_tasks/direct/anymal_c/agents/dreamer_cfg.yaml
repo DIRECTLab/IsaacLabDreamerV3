@@ -3,7 +3,7 @@ defaults:
   replica: 0
   replicas: 1
   method: name
-  task: "Isaac-Anymal-C-Dreamer-Direct-v0"
+  task: ''
   seed: 0
   script: train
   batch_size: 16
