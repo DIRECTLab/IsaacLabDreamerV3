@@ -126,6 +126,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, conf
     env_args["debug"] = args["debug"]
 
     configs["defaults"]["task"] = f"isaaclab_{args['task']}"
+    configs["defaults"]["run"]["envs"] = args["num_envs"]
     # HARL runner args
     args["env"] = "isaaclab"
     args["algo"] = args["algorithm"]
