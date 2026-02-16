@@ -3,55 +3,50 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 
-"""Train an algorithm."""
+
+
+"""Play an algorithm (supports both coordination + adversarial HARL runners)."""
 
 import argparse
+import os
+import pprint
 import sys
-import time
-
+import torch
+from tqdm import tqdm
 from huggingface_hub import snapshot_download
+import ruamel.yaml as yaml
+import portal
+from functools import partial as bind
 
 from isaaclab.app import AppLauncher
-parser = argparse.ArgumentParser(description="Train an RL agent with HARL.", formatter_class=argparse.RawTextHelpFormatter, epilog=policies_summary(HF_POLICY_MAP))
 
-parser.add_argument("--video", action="store_true", help="Record videos during training.")
-parser.add_argument("--video_length", type=int, default=500, help="Length of the recorded video (in steps).")
-parser.add_argument("--video_interval", type=int, default=20000, help="Interval between video recordings (in steps).")
-parser.add_argument("--num_envs", type=int, default=None, help="Number of environments to simulate.")
-parser.add_argument("--task", type=str, default=None, help="Name of the task.")
-parser.add_argument("--seed", type=int, default=1, help="Seed used for the environment")
-parser.add_argument("--save_interval", type=int, default=None, help="How often to save the model")
-parser.add_argument("--save_checkpoints", action="store_true", default=False, help="Whether or not to save checkpoints")
-parser.add_argument("--checkpoint_interval", type=int, default=200, help="How often to save a model checkpoint")
-parser.add_argument("--log_interval", type=int, default=None, help="How often to log outputs")
-parser.add_argument("--exp_name", type=str, default="test", help="Name of the Experiment")
-parser.add_argument("--num_env_steps", type=int, default=None, help="RL Policy training iterations.")
-parser.add_argument("--dir", type=str, default=None, help="folder with trained models")
-parser.add_argument("--debug", action="store_true", help="whether to run in debug mode for visualization")
-parser.add_argument(
-    "--adversarial_training_mode",
-    default="parallel",
-    choices=["parallel", "ladder", "leapfrog"],
-    help=(
-        "the mode type for adversarial training,                     note on ladder training with teams that are"
-        " composed of heterogeneous agents, the two teams must place the robots in the same order in their environment "
-        "                    for ladder to work"
-    ),
-)
-parser.add_argument(
-    "--adversarial_training_iterations",
-    default=50_000_000,
-    type=int,
-    help="the number of iterations to swap training for adversarial modes like ladder and leapfrog",
-)
+parser = argparse.ArgumentParser(description="Play an RL agent with HARL.", formatter_class=argparse.RawTextHelpFormatter)
 
 parser.add_argument(
     "--algorithm",
     type=str,
     default="happo",
-    choices=["happo", "hatrpo", "haa2c", "mappo", "mappo_unshare", "happo_adv"],
-    help="Algorithm name. Choose from: happo, hatrpo, haa2c, mappo, and mappo_unshare.",
+    choices=[
+        "happo",
+        "hatrpo",
+        "haa2c",
+        "haddpg",
+        "hatd3",
+        "hasac",
+        "had3qn",
+        "maddpg",
+        "matd3",
+        "mappo",
+        "happo_adv",
+    ],
+    help="Algorithm name.",
 )
+parser.add_argument("--num_envs", type=int, default=None, help="Number of environments to simulate.")
+parser.add_argument("--task", type=str, default=None, help="Name of the task.")
+parser.add_argument("--seed", type=int, default=None, help="Seed used for the environment.")
+parser.add_argument("--num_env_steps", type=int, default=None, help="Total environment steps to play.")
+parser.add_argument("--dir", type=str, default=None, help="Folder with trained models (local path).")
+parser.add_argument("--debug", action="store_true", help="Run in debug mode for visualization.")
 parser.add_argument(
     "--load_starting_policy",
     action="store_true",
@@ -63,91 +58,182 @@ parser.add_argument(
     help="If set, load the trained policy for this env from HuggingFace (if one exists).",
 )
 
-
 # append AppLauncher cli args
 AppLauncher.add_app_launcher_args(parser)
+
 # parse the arguments
 args_cli, hydra_args = parser.parse_known_args()
-# always enable cameras to record video
-if args_cli.video:
-    args_cli.enable_cameras = True
 
 # clear out sys.argv for Hydra
 sys.argv = [sys.argv[0]] + hydra_args
 
-# launch omniverse app
+# --------------------------------------------------------------------------------------
+# Launch Omniverse
+# --------------------------------------------------------------------------------------
+
 app_launcher = AppLauncher(args_cli)
 simulation_app = app_launcher.app
 
-import os
+# --------------------------------------------------------------------------------------
+# Imports that require the app
+# --------------------------------------------------------------------------------------
 
-from embodied.core.wrappers import IsaacLabWrapper
+import sys
+from pathlib import Path
 
-from isaaclab.envs import DirectMARLEnvCfg, DirectRLEnvCfg, ManagerBasedRLEnvCfg
+import dreamerv3
+from dreamerv3.main import make_agent, make_logger, make_replay, make_env, wrap_env, make_stream
+folder = Path(dreamerv3.__file__).parent
+sys.path.insert(0, str(folder.parent))
 
-import isaaclab_tasks  # noqa: F401
-from isaaclab_tasks.utils.hydra import hydra_task_config
+import embodied
+import elements
+
+from isaaclab.envs import DirectMARLEnvCfg, DirectRLEnvCfg, ManagerBasedRLEnvCfg  # noqa: E402
+
+import isaaclab_tasks  # noqa: F401, E402
+from isaaclab_tasks.utils.hydra import hydra_task_config  # noqa: E402
 
 algorithm = args_cli.algorithm.lower()
-agent_cfg_entry_point = f"harl_{algorithm}_cfg_entry_point"
+agent_cfg_entry_point = f"dreamer_cfg_entry_point"
+
+def _max_action_dim(action_space) -> int:
+    """Recursively find the maximum action dimension across nested dict action spaces."""
+    if isinstance(action_space, dict):
+        if len(action_space) == 0:
+            return 0
+        return max(_max_action_dim(v) for v in action_space.values())
+    # assume a gymnasium space-like object with .shape
+    shape = getattr(action_space, "shape", None)
+    if not shape:
+        return 0
+    return int(shape[0])
 
 @hydra_task_config(args_cli.task, agent_cfg_entry_point)
-def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agent_cfg: dict):
-
+def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, configs: dict):
     args = args_cli.__dict__
+    env_args: dict = {}
+    if args.get("num_envs") is not None:
+        env_cfg.scene.num_envs = args["num_envs"]
+    else:
+        # ensure downstream uses an int
+        args["num_envs"] = int(env_cfg.scene.num_envs)
 
-    args["env"] = "isaaclab"
-
-    args["algo"] = args["algorithm"]
-
-    algo_args = agent_cfg
-
-    algo_args["eval"]["use_eval"] = False
-    algo_args["train"]["n_rollout_threads"] = args["num_envs"]
-    algo_args["train"]["num_env_steps"] = args["num_env_steps"]
-    algo_args["train"]["eval_interval"] = args["save_interval"]
-    algo_args["train"]["save_checkpoints"] = args["save_checkpoints"]
-    algo_args["train"]["checkpoint_interval"] = args["checkpoint_interval"]
-    algo_args["train"]["log_interval"] = args["log_interval"]
-    algo_args["train"]["model_dir"] = args["dir"]
-    algo_args["seed"]["specify_seed"] = True
-    algo_args["seed"]["seed"] = args["seed"]
-    algo_args["algo"]["adversarial_training_mode"] = args["adversarial_training_mode"]
-    algo_args["algo"]["adversarial_training_iterations"] = args["adversarial_training_iterations"]
-
-    algo_args.setdefault("train", {})
-    _configure_model_dir(args, algo_args)
-
-    env_args = {}
-    env_cfg.scene.num_envs = args["num_envs"]
     env_args["task"] = args["task"]
     env_args["config"] = env_cfg
-    hms_time = time.strftime("%Y-%m-%d-%H-%M-%S", time.localtime())
-    env_args["video_settings"] = {
-        "video": bool(args["video"]),
-        "video_length": args["video_length"],
-        "video_interval": args["video_interval"],
-        "log_dir": os.path.join(
-            algo_args["logger"]["log_dir"],
-            "isaaclab",
-            args["task"],
-            args["algorithm"],
-            args["exp_name"],
-            "-".join(["seed-{:0>5}".format(agent_cfg["seed"]["seed"]), hms_time]),
-            "videos",
-        ),
-    }
-
+    env_args["video_settings"] = {"video": False}
     env_args["headless"] = args["headless"]
     env_args["debug"] = args["debug"]
 
-    # create runner
+    configs["defaults"]["task"] = f"isaaclab_{args['task']}"
+    configs["defaults"]["run"]["envs"] = args["num_envs"]
+    # HARL runner args
+    args["env"] = "isaaclab"
+    args["algo"] = args["algorithm"]
+    args["exp_name"] = "play"
 
-    runner = RUNNER_REGISTRY[args["algo"]](args, algo_args, env_args)
-    runner.run()
-    runner.close()
 
+    parsed, other = elements.Flags(configs=['defaults']).parse_known()
+    config = elements.Config(configs['defaults'])
+    for name in parsed.configs:
+        config = config.update(configs[name])
+    config = elements.Flags(config).parse(other)
+    config = config.update(logdir=(
+        config.logdir.format(timestamp=elements.timestamp())))
+
+    if 'JOB_COMPLETION_INDEX' in os.environ:
+        config = config.update(replica=int(os.environ['JOB_COMPLETION_INDEX']))
+    print('Replica:', config.replica, '/', config.replicas)
+
+    logdir = elements.Path(config.logdir)
+    print('Logdir:', logdir)
+    print('Run script:', config.script)
+    if not config.script.endswith(('_env', '_replay')):
+        logdir.mkdir()
+        config.save(logdir / 'config.yaml')
+
+    def init():
+        elements.timer.global_timer.enabled = config.logger.timer
+
+    portal.setup(
+        errfile=config.errfile and logdir / 'error',
+        clientkw=dict(logging_color='cyan'),
+        serverkw=dict(logging_color='cyan'),
+        initfns=[init],
+        ipv6=config.ipv6,
+    )
+
+    args = elements.Config(
+        **config.run,
+        replica=config.replica,
+        replicas=config.replicas,
+        logdir=config.logdir,
+        batch_size=config.batch_size,
+        batch_length=config.batch_length,
+        report_length=config.report_length,
+        consec_train=config.consec_train,
+        consec_report=config.consec_report,
+        replay_context=config.replay_context,
+    )
+
+    if config.script == 'train':
+        embodied.run.train(
+            bind(make_agent, config, env_args=env_args),
+            bind(make_replay, config, 'replay'),
+            bind(make_env, config, env_args=env_args),
+            bind(make_stream, config),
+            bind(make_logger, config),
+            args)
+
+    elif config.script == 'train_eval':
+        embodied.run.train_eval(
+            bind(make_agent, config),
+            bind(make_replay, config, 'replay'),
+            bind(make_replay, config, 'eval_replay', 'eval'),
+            bind(make_env, config),
+            bind(make_env, config),
+            bind(make_stream, config),
+            bind(make_logger, config),
+            args)
+
+    elif config.script == 'eval_only':
+        embodied.run.eval_only(
+            bind(make_agent, config),
+            bind(make_env, config),
+            bind(make_logger, config),
+            args)
+
+    elif config.script == 'parallel':
+        embodied.run.parallel.combined(
+            bind(make_agent, config),
+            bind(make_replay, config, 'replay'),
+            bind(make_replay, config, 'replay_eval', 'eval'),
+            bind(make_env, config),
+            bind(make_env, config),
+            bind(make_stream, config),
+            bind(make_logger, config),
+            args)
+
+    elif config.script == 'parallel_env':
+        is_eval = config.replica >= args.envs
+        embodied.run.parallel.parallel_env(
+            bind(make_env, config), config.replica, args, is_eval)
+
+    elif config.script == 'parallel_envs':
+        is_eval = config.replica >= args.envs
+        embodied.run.parallel.parallel_envs(
+            bind(make_env, config), bind(make_env, config), args)
+
+    elif config.script == 'parallel_replay':
+        embodied.run.parallel.parallel_replay(
+            bind(make_replay, config, 'replay'),
+            bind(make_replay, config, 'replay_eval', 'eval'),
+            bind(make_stream, config),
+            args)
+
+    else:
+        raise NotImplementedError(config.script)
 
 if __name__ == "__main__":
-    main()  # type: ignore
+    main()
     simulation_app.close()
