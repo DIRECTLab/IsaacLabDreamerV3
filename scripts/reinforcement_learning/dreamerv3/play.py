@@ -20,43 +20,13 @@ from functools import partial as bind
 
 from isaaclab.app import AppLauncher
 
-parser = argparse.ArgumentParser(description="Play an RL agent with HARL.", formatter_class=argparse.RawTextHelpFormatter)
+parser = argparse.ArgumentParser(description="Play an RL agent with DreamerV3.", formatter_class=argparse.RawTextHelpFormatter)
 
-parser.add_argument(
-    "--algorithm",
-    type=str,
-    default="happo",
-    choices=[
-        "happo",
-        "hatrpo",
-        "haa2c",
-        "haddpg",
-        "hatd3",
-        "hasac",
-        "had3qn",
-        "maddpg",
-        "matd3",
-        "mappo",
-        "happo_adv",
-    ],
-    help="Algorithm name.",
-)
 parser.add_argument("--num_envs", type=int, default=None, help="Number of environments to simulate.")
 parser.add_argument("--task", type=str, default=None, help="Name of the task.")
 parser.add_argument("--seed", type=int, default=None, help="Seed used for the environment.")
 parser.add_argument("--num_env_steps", type=int, default=None, help="Total environment steps to play.")
 parser.add_argument("--dir", type=str, default=None, help="Folder with trained models (local path).")
-parser.add_argument("--debug", action="store_true", help="Run in debug mode for visualization.")
-parser.add_argument(
-    "--load_starting_policy",
-    action="store_true",
-    help="If set, load the starting policy for this env from HuggingFace (if one exists).",
-)
-parser.add_argument(
-    "--load_trained_policy",
-    action="store_true",
-    help="If set, load the trained policy for this env from HuggingFace (if one exists).",
-)
 
 # append AppLauncher cli args
 AppLauncher.add_app_launcher_args(parser)
@@ -129,9 +99,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, conf
     configs["defaults"]["run"]["envs"] = args["num_envs"]
     # HARL runner args
     args["env"] = "isaaclab"
-    args["algo"] = args["algorithm"]
     args["exp_name"] = "play"
-
 
     parsed, other = elements.Flags(configs=['defaults']).parse_known()
     config = elements.Config(configs['defaults'])
@@ -176,63 +144,13 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, conf
         replay_context=config.replay_context,
     )
 
-    if config.script == 'train':
-        embodied.run.train(
-            bind(make_agent, config, env_args=env_args),
-            bind(make_replay, config, 'replay'),
-            bind(make_env, config, env_args=env_args),
-            bind(make_stream, config),
-            bind(make_logger, config),
-            args)
 
-    elif config.script == 'train_eval':
-        embodied.run.train_eval(
-            bind(make_agent, config),
-            bind(make_replay, config, 'replay'),
-            bind(make_replay, config, 'eval_replay', 'eval'),
-            bind(make_env, config),
-            bind(make_env, config),
-            bind(make_stream, config),
-            bind(make_logger, config),
-            args)
+    embodied.run.eval_only(
+        bind(make_agent, config),
+        bind(make_env, config),
+        bind(make_logger, config),
+        args)
 
-    elif config.script == 'eval_only':
-        embodied.run.eval_only(
-            bind(make_agent, config),
-            bind(make_env, config),
-            bind(make_logger, config),
-            args)
-
-    elif config.script == 'parallel':
-        embodied.run.parallel.combined(
-            bind(make_agent, config),
-            bind(make_replay, config, 'replay'),
-            bind(make_replay, config, 'replay_eval', 'eval'),
-            bind(make_env, config),
-            bind(make_env, config),
-            bind(make_stream, config),
-            bind(make_logger, config),
-            args)
-
-    elif config.script == 'parallel_env':
-        is_eval = config.replica >= args.envs
-        embodied.run.parallel.parallel_env(
-            bind(make_env, config), config.replica, args, is_eval)
-
-    elif config.script == 'parallel_envs':
-        is_eval = config.replica >= args.envs
-        embodied.run.parallel.parallel_envs(
-            bind(make_env, config), bind(make_env, config), args)
-
-    elif config.script == 'parallel_replay':
-        embodied.run.parallel.parallel_replay(
-            bind(make_replay, config, 'replay'),
-            bind(make_replay, config, 'replay_eval', 'eval'),
-            bind(make_stream, config),
-            args)
-
-    else:
-        raise NotImplementedError(config.script)
 
 if __name__ == "__main__":
     main()
