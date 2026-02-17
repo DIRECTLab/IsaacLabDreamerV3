@@ -5,7 +5,7 @@
 
 
 
-"""Play an algorithm (supports both coordination + adversarial HARL runners)."""
+"""Train an algorithm (supports both coordination + adversarial HARL runners)."""
 
 import argparse
 import os
@@ -26,6 +26,8 @@ parser.add_argument("--task", type=str, default=None, help="Name of the task.")
 parser.add_argument("--seed", type=int, default=None, help="Seed used for the environment.")
 parser.add_argument("--num_env_steps", type=int, default=None, help="Total environment steps to play.")
 parser.add_argument("--dir", type=str, default=None, help="Folder with trained models (local path).")
+parser.add_argument("--debug", type=bool, default=False, help="Enable debug mode.")
+
 # append AppLauncher cli args
 AppLauncher.add_app_launcher_args(parser)
 

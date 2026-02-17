@@ -27,6 +27,7 @@ parser.add_argument("--task", type=str, default=None, help="Name of the task.")
 parser.add_argument("--seed", type=int, default=None, help="Seed used for the environment.")
 parser.add_argument("--num_env_steps", type=int, default=None, help="Total environment steps to play.")
 parser.add_argument("--dir", type=str, default=None, help="Folder with trained models (local path).")
+parser.add_argument("--debug", type=bool, default=False, help="Enable debug mode.")
 
 # append AppLauncher cli args
 AppLauncher.add_app_launcher_args(parser)
@@ -64,7 +65,6 @@ from isaaclab.envs import DirectMARLEnvCfg, DirectRLEnvCfg, ManagerBasedRLEnvCfg
 import isaaclab_tasks  # noqa: F401, E402
 from isaaclab_tasks.utils.hydra import hydra_task_config  # noqa: E402
 
-algorithm = args_cli.algorithm.lower()
 agent_cfg_entry_point = f"dreamer_cfg_entry_point"
 
 def _max_action_dim(action_space) -> int:
@@ -97,6 +97,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, conf
 
     configs["defaults"]["task"] = f"isaaclab_{args['task']}"
     configs["defaults"]["run"]["envs"] = args["num_envs"]
+    configs["defaults"]["run"]["from_checkpoint"] = args["dir"]
     # HARL runner args
     args["env"] = "isaaclab"
     args["exp_name"] = "play"
@@ -146,8 +147,8 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, conf
 
 
     embodied.run.eval_only(
-        bind(make_agent, config),
-        bind(make_env, config),
+        bind(make_agent, config, env_args=env_args),
+        bind(make_env, config, env_args=env_args),
         bind(make_logger, config),
         args)
 
