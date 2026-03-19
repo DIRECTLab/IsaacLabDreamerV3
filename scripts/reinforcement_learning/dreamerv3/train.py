@@ -62,7 +62,6 @@ from isaaclab.envs import DirectMARLEnvCfg, DirectRLEnvCfg, ManagerBasedRLEnvCfg
 import isaaclab_tasks  # noqa: F401, E402
 from isaaclab_tasks.utils.hydra import hydra_task_config  # noqa: E402
 
-algorithm = args_cli.algorithm.lower()
 agent_cfg_entry_point = f"dreamer_cfg_entry_point"
 
 def _max_action_dim(action_space) -> int:

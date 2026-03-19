@@ -64,7 +64,6 @@ from isaaclab.envs import DirectMARLEnvCfg, DirectRLEnvCfg, ManagerBasedRLEnvCfg
 import isaaclab_tasks  # noqa: F401, E402
 from isaaclab_tasks.utils.hydra import hydra_task_config  # noqa: E402
 
-algorithm = args_cli.algorithm.lower()
 agent_cfg_entry_point = f"dreamer_cfg_entry_point"
 
 def _max_action_dim(action_space) -> int:
@@ -93,10 +92,10 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, conf
     env_args["config"] = env_cfg
     env_args["video_settings"] = {"video": False}
     env_args["headless"] = args["headless"]
-    env_args["debug"] = args["debug"]
 
     configs["defaults"]["task"] = f"isaaclab_{args['task']}"
     configs["defaults"]["run"]["envs"] = args["num_envs"]
+    configs["defaults"]["run"]["from_checkpoint"] = args["dir"]
     # HARL runner args
     args["env"] = "isaaclab"
     args["exp_name"] = "play"
@@ -146,8 +145,8 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, conf
 
 
     embodied.run.eval_only(
-        bind(make_agent, config),
-        bind(make_env, config),
+        bind(make_agent, config, env_args=env_args),
+        bind(make_env, config, env_args=env_args),
         bind(make_logger, config),
         args)
 

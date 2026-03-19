@@ -13,7 +13,7 @@ source /home/software/miniforge3/etc/profile.d/conda.sh
 conda activate env_isaaclab
 
 # Run the Dreamer Anymal C play script
-python ./scripts/reinforcement_learning/dreamerv3/play.py \
+python ../play.py \
     --task "Isaac-Velocity-Flat-Anymal-C-Direct-v0" \
     --num_envs 500 \
     --headless
