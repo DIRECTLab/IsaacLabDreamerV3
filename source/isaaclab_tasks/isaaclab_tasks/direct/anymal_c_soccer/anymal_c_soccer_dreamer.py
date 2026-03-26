@@ -155,7 +155,7 @@ class AnymalDreamerSoccerEnvCfg(DirectRLEnvCfg):
         spawn=sim_utils.PinholeCameraCfg(
             focal_length=10.0, focus_distance=400.0, horizontal_aperture=20.955, clipping_range=(0.1, 1.0e5)
         ),
-        offset=CameraCfg.OffsetCfg(pos=(0.5, 0.0, 0.0), rot=get_quaternion_tuple_from_xyz(0, 0, 0), convention="opengl"),
+        offset=CameraCfg.OffsetCfg(pos=(0.5, 0.0, 0.0), rot=get_quaternion_tuple_from_xyz(0, 0, 0), convention="world"),
     )
 
     # Reward scales from stage_1, stage_2, and go_to_point_soccer
