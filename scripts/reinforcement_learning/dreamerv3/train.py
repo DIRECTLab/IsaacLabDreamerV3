@@ -11,6 +11,7 @@ import argparse
 import os
 import pprint
 import sys
+import time
 import torch
 from tqdm import tqdm
 from huggingface_hub import snapshot_download
@@ -24,9 +25,10 @@ parser = argparse.ArgumentParser(description="Train an RL agent with DreamerV3."
 parser.add_argument("--num_envs", type=int, default=None, help="Number of environments to simulate.")
 parser.add_argument("--task", type=str, default=None, help="Name of the task.")
 parser.add_argument("--seed", type=int, default=None, help="Seed used for the environment.")
-parser.add_argument("--num_env_steps", type=int, default=None, help="Total environment steps to play.")
+parser.add_argument("--num_env_steps", type=int, required=True, help="Total environment steps to play.")
 parser.add_argument("--dir", type=str, default=None, help="Folder with trained models (local path).")
 parser.add_argument("--debug", type=bool, default=False, help="Enable debug mode.")
+parser.add_argument("--logdir", type=str, default=f"./logs/dreamerv3/{time.time()}", help="Output log directory.")
 
 # append AppLauncher cli args
 AppLauncher.add_app_launcher_args(parser)
@@ -95,7 +97,9 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, conf
     env_args["debug"] = args["debug"]
 
     configs["defaults"]["task"] = f"isaaclab_{args['task']}"
+    configs["defaults"]["logdir"] = args["logdir"]
     configs["defaults"]["run"]["envs"] = args["num_envs"]
+    configs["defaults"]["run"]["steps"] = args["num_env_steps"]
     # HARL runner args
     args["env"] = "isaaclab"
     args["exp_name"] = "play"

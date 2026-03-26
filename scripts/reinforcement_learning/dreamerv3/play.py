@@ -45,6 +45,11 @@ sys.argv = [sys.argv[0]] + hydra_args
 app_launcher = AppLauncher(args_cli)
 simulation_app = app_launcher.app
 
+# if args_cli.headless:
+#     from isaacsim.core.utils.extensions import enable_extension
+#     enable_extension("omni.kit.livestream.webrtc")
+#     simulation_app.set_setting("/app/window/drawMouse", True)
+
 # --------------------------------------------------------------------------------------
 # Imports that require the app
 # --------------------------------------------------------------------------------------

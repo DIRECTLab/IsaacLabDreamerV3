@@ -61,11 +61,11 @@ def get_quaternion_tuple_from_xyz(x, y, z):
 @configclass
 class AnymalDreamerSoccerEnvCfg(DirectRLEnvCfg):
     decimation = 4
-    episode_length_s = 20.0
+    episode_length_s = 100.0
     action_scale = 0.5
     action_space = 12
-    # observation space: robot_state (45) + camera RGB (256*256*3)
-    observation_space = 45 + 256*256*3  # robot state + camera RGB
+    # observation space: robot_state (45) + camera RGB (128*128*3)
+    observation_space = 45 + 128*128*3  # robot state + camera RGB
     state_space = 0
     possible_agents = ["robot_0"]
 
@@ -149,13 +149,13 @@ class AnymalDreamerSoccerEnvCfg(DirectRLEnvCfg):
     camera_0 = TiledCameraCfg(
         prim_path="/World/envs/env_.*/Robot_0/base/front_cam",
         update_period=0.1,
-        height=256,
-        width=256,
+        height=128,
+        width=128,
         data_types=["rgb"],
         spawn=sim_utils.PinholeCameraCfg(
             focal_length=10.0, focus_distance=400.0, horizontal_aperture=20.955, clipping_range=(0.1, 1.0e5)
         ),
-        offset=CameraCfg.OffsetCfg(pos=(1.0, 0.0, 0.0), rot=get_quaternion_tuple_from_xyz(0, -torch.pi/2, 0), convention="opengl"),
+        offset=CameraCfg.OffsetCfg(pos=(0.5, 0.0, 0.0), rot=get_quaternion_tuple_from_xyz(0, 0, 0), convention="opengl"),
     )
 
     # Reward scales from stage_1, stage_2, and go_to_point_soccer
@@ -168,7 +168,6 @@ class AnymalDreamerSoccerEnvCfg(DirectRLEnvCfg):
 
     # Go to point soccer rewards
     reached_goal_reward = 10.0
-    goal_reach_radius: float = 1.0
     z_vel_reward_scale = -2.0
     ang_vel_reward_scale = -0.05
     joint_torque_reward_scale = -2.5e-5
@@ -314,7 +313,7 @@ class AnymalDreamerSoccerEnv(DirectRLEnv):
         # Camera observation - get RGB image and flatten
         camera_data = self._camera.data.output["rgb"].to(self.device)
         # Normalize RGB image (flatten and normalize)
-        camera_data = camera_data.reshape(self.num_envs, -1)  # [num_envs, 256*256*3]
+        camera_data = camera_data.reshape(self.num_envs, -1)  # [num_envs, 128*128*3]
         camera_data = torch.nan_to_num(camera_data, nan=0.0, posinf=255.0, neginf=0.0)
         # Normalize to [-1, 1]
         camera_data = camera_data / 255.0 * 2.0 - 1.0
@@ -366,7 +365,7 @@ class AnymalDreamerSoccerEnv(DirectRLEnv):
         dists_to_ball = torch.norm(
             self._robot.data.root_pos_w[:, :2] - self.ball.data.root_pos_w[:, :2], dim=-1
         )
-        goal_reached = dists_to_ball <= self.cfg.goal_reach_radius
+        goal_reached = self._ball_in_goal_area()[0]  # Check if ball is in the correct goal area
         rewards["goal_reached"] = goal_reached.float() * self.cfg.reached_goal_reward
 
         # Z velocity penalty (keep flat locomotion)
@@ -465,9 +464,6 @@ class AnymalDreamerSoccerEnv(DirectRLEnv):
             self.episode_length_buf[:] = torch.randint_like(self.episode_length_buf, high=int(self.max_episode_length))
         self._actions[env_ids] = 0.0
         self._previous_actions[env_ids] = 0.0
-
-        # Sample new target goals
-        self.target_goal[env_ids] = torch.randint(0, 2, (len(env_ids),), device=self.device).to(torch.int32)
 
         self._draw_goal_areas()
 
