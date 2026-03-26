@@ -3,10 +3,9 @@
 #SBATCH --job-name=anymal-c-soccer-train
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --nodelist=terry
-#SBATCH --cpus-per-task=16
-#SBATCH --mem=40G
-#SBATCH --gpus=1
+#SBATCH --nodelist=kuma
+#SBATCH --exclusive
+#SBATCH --ntasks-per-node=1
 #SBATCH --output=./slurm_logs/%x-%j.log
 #SBATCH --error=./slurm_logs/%x-%j.log
 
