@@ -361,12 +361,6 @@ class AnymalDreamerSoccerEnv(DirectRLEnv):
 
         # ===== Go to Point Soccer Rewards: Robot state quality and goal reaching =====
         # Goal reached reward (based on distance to goal)
-        # NOTE: Using ball distance as proxy for "goal" in soccer context
-        dists_to_ball = torch.norm(
-            self._robot.data.root_pos_w[:, :2] - self.ball.data.root_pos_w[:, :2], dim=-1
-        )
-        goal_reached = self._ball_in_goal_area()[0]  # Check if ball is in the correct goal area
-        rewards["goal_reached"] = goal_reached.float() * self.cfg.reached_goal_reward
 
         # Z velocity penalty (keep flat locomotion)
         z_vel_error = torch.square(self._robot.data.root_lin_vel_b[:, 2])
