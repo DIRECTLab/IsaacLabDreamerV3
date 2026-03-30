@@ -167,7 +167,6 @@ class AnymalDreamerSoccerEnvCfg(DirectRLEnvCfg):
     ball_to_goal_reward_scale = 1.0
 
     # Go to point soccer rewards
-    reached_goal_reward = 10.0
     z_vel_reward_scale = -2.0
     ang_vel_reward_scale = -0.05
     joint_torque_reward_scale = -2.5e-5
