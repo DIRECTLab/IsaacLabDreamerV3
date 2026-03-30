@@ -4,6 +4,8 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --nodelist=kuma
+#SBATCH --time=240:00:00
+#SBATCH --mem=60G
 #SBATCH --exclusive
 #SBATCH --ntasks-per-node=1
 #SBATCH --output=./slurm_logs/%x-%j.log
