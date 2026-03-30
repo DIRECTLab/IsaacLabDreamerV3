@@ -447,8 +447,7 @@ class AnymalDreamerSoccerEnv(DirectRLEnv):
         ball_in_goal1, ball_in_goal2 = self._ball_in_goal_area()
         ball_in_any_goal = ball_in_goal1 | ball_in_goal2
 
-        fallen = self._robot.data.root_com_pos_w[:, 2] < 0.1
-        dones = ball_in_any_goal | fallen
+        dones = ball_in_any_goal
 
         time_out = self.episode_length_buf >= self.max_episode_length - 1
         return dones, time_out
